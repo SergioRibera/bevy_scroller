@@ -14,22 +14,32 @@ use crate::ScrollerGenerator;
 
 #[derive(Reflect, Default, Debug, Clone)]
 pub enum ScrollerDirection {
+  None,
   #[default]
   Forward,
   Backward,
+  Up,
+  Down,
+  TopRightDiagonal,
+  TopLeftDiagonal,
+  BottomRightDiagonal,
+  BottomLeftDiagonal,
+  Custom(f32, f32),
 }
 
-impl ScrollerDirection {
-  pub fn as_f32(&self) -> f32 {
-    (*self).clone().into()
-  }
-}
-
-impl From<ScrollerDirection> for f32 {
+impl From<ScrollerDirection> for Vec2 {
   fn from(value: ScrollerDirection) -> Self {
     match value {
-      ScrollerDirection::Forward => 1.,
-      ScrollerDirection::Backward => -1.,
+      ScrollerDirection::None => Vec2::ZERO,
+      ScrollerDirection::Forward => Vec2::new(1., 0.),
+      ScrollerDirection::Backward => Vec2::new(-1., 0.),
+      ScrollerDirection::Up => Vec2::new(0., 1.),
+      ScrollerDirection::Down => Vec2::new(0., -1.),
+      ScrollerDirection::TopRightDiagonal => Vec2::new(1., 1.),
+      ScrollerDirection::TopLeftDiagonal => Vec2::new(-1., 1.),
+      ScrollerDirection::BottomRightDiagonal => Vec2::new(-1., -1.),
+      ScrollerDirection::BottomLeftDiagonal => Vec2::new(-1., -1.),
+      ScrollerDirection::Custom(x, y) => Vec2::new(x, y),
     }
   }
 }
@@ -58,7 +68,8 @@ pub struct Scroller {
 
 impl Scroller {
   pub fn get_free_space(&self) -> f32 {
-    (self.start - self.spawn_edge) * -self.direction.as_f32()
+    let dir: Vec2 = self.direction.clone().into();
+    (self.start - self.spawn_edge) * -dir.x
   }
 
   pub fn new_item_needed(&self) -> bool {
@@ -66,8 +77,9 @@ impl Scroller {
   }
 
   pub fn get_next_item_position(&self, item: &ScrollerItem) -> Vec2 {
+    let dir: Vec2 = self.direction.clone().into();
     Vec2 {
-      x: self.spawn_edge - item.size.x / 2. * self.direction.as_f32(),
+      x: self.spawn_edge - item.size.x / 2. * dir.x,
       ..default()
     }
   }
@@ -123,7 +135,9 @@ pub fn init(
     };
     debug!("Init scroller: {name}");
 
-    scroller.end = scroller_size.size.x / 2. * scroller.direction.as_f32();
+    let dir: Vec2 = scroller.direction.clone().into();
+
+    scroller.end = scroller_size.size.x / 2. * dir.x;
     scroller.start = -scroller.end;
     scroller.spawn_edge = scroller.end;
     commands.entity(entity).insert(NeedInitialFilling);
@@ -192,6 +206,8 @@ pub fn on_items_added(
   for (scroller_item, mut transform, mut visibility, scroller_item_entity) in q_added.iter_mut() {
     if let Ok((mut scroller, scroller_entity)) = q_scroller.get_mut(scroller_item.parent) {
       let translation = scroller.get_next_item_position(scroller_item).extend(0.);
+      let dir: Vec2 = scroller.direction.clone().into();
+
 
       transform.translation = translation;
       *visibility = Visibility::Inherited;
@@ -201,7 +217,7 @@ pub fn on_items_added(
           .insert(RenderLayers::layer(render_layer));
       }
 
-      scroller.spawn_edge -= scroller_item.size.x * scroller.direction.as_f32();
+      scroller.spawn_edge -= scroller_item.size.x * dir.x;
 
       commands
         .entity(scroller_entity)
@@ -275,13 +291,15 @@ pub fn update(
         .remove::<NeedInitialFilling>();
     }
     if !scroller.is_paused {
-      scroller.spawn_edge += scroller.speed * scroller.direction.as_f32();
+      let dir: Vec2 = scroller.direction.clone().into();
+
+      scroller.spawn_edge += scroller.speed * dir.x;
       q_item
         .iter_mut()
         .filter(|(_, _, item)| item.parent == scroller_entity)
         .for_each(|(mut transform, _, _)| {
           transform.translation +=
-            Vec2::from([scroller.speed * scroller.direction.as_f32(), 0.]).extend(0.);
+            Vec2::from([scroller.speed * dir.x, 0.]).extend(0.);
         })
     }
   }
@@ -302,9 +320,11 @@ pub fn delete_items(
 ) {
   for (scroller_item, entity, transform) in q_scroller_item.iter() {
     if let Ok(scroller) = q_scroller.get(scroller_item.parent) {
+      let dir: Vec2 = scroller.direction.clone().into();
+
       if (scroller.end - transform.translation.x
-        + scroller_item.size.x / 2. * scroller.direction.as_f32())
-        * scroller.direction.as_f32()
+        + scroller_item.size.x / 2. * dir.x)
+        * dir.x
         < 0.
       {
         commands.entity(entity).despawn_recursive();
